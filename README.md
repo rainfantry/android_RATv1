@@ -5,9 +5,11 @@ Proof-of-concept Android Remote Access Tool for authorized security research.
 ## Requirements
 
 - Python 3.10+
-- Java JDK 17+
+- **Java JDK 17 or 21** (JDK 25+ NOT supported - Kotlin plugin incompatible)
 - ADB (Android Debug Bridge)
 - Android device with USB debugging enabled
+
+> **Note:** If build fails with `java.lang.IllegalArgumentException: 25.0.2`, you're running JDK 25. Download JDK 17 and either set `JAVA_HOME` or add `org.gradle.java.home=/path/to/jdk17` to `client/gradle.properties`.
 
 ## Quick Start
 
@@ -136,6 +138,32 @@ android_RATv1/
 │       └── AndroidManifest.xml
 └── server/
     └── ratv1_gui.py             # Desktop GUI C2
+```
+
+## Troubleshooting
+
+### "There is not enough space on the disk"
+
+Gradle caches to `C:\Users\<user>\.gradle` by default. If C: is low on space:
+
+```powershell
+$env:GRADLE_USER_HOME = "E:\gradle_home"  # or another drive with space
+python build.py --ip <IP> --install
+```
+
+### "Could not find or load main class org.gradle.wrapper.GradleWrapperMain"
+
+The gradle-wrapper.jar is missing. Run:
+
+```bash
+python setup.py
+```
+
+If that doesn't fix it:
+
+```powershell
+cd client\gradle\wrapper
+Invoke-WebRequest -Uri "https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar" -OutFile gradle-wrapper.jar
 ```
 
 ## Legal Notice

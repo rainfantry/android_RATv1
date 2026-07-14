@@ -126,9 +126,17 @@ def setup_sdk():
 
 def setup_gradle_wrapper():
     gradlew = os.path.join(CLIENT_DIR, "gradlew.bat")
-    if os.path.exists(gradlew):
-        print(f"  {G}[+]{X} Gradle wrapper already exists")
-        return True
+    wrapper_jar = os.path.join(CLIENT_DIR, "gradle", "wrapper", "gradle-wrapper.jar")
+    
+    if os.path.exists(gradlew) and os.path.exists(wrapper_jar):
+        jar_size = os.path.getsize(wrapper_jar)
+        if jar_size > 40000 and jar_size < 100000:
+            print(f"  {G}[+]{X} Gradle wrapper already exists")
+            return True
+        else:
+            print(f"  {A}[~]{X} Gradle wrapper JAR invalid (wrong size: {jar_size})")
+    elif os.path.exists(gradlew) and not os.path.exists(wrapper_jar):
+        print(f"  {A}[~]{X} gradlew.bat exists but gradle-wrapper.jar missing")
 
     gradle_bin = shutil.which("gradle")
     if gradle_bin:
@@ -219,8 +227,12 @@ def verify():
         ok = False
 
     gradlew = os.path.join(CLIENT_DIR, "gradlew.bat")
-    if os.path.exists(gradlew):
+    wrapper_jar = os.path.join(CLIENT_DIR, "gradle", "wrapper", "gradle-wrapper.jar")
+    if os.path.exists(gradlew) and os.path.exists(wrapper_jar):
         print(f"  {G}[+]{X} Gradle wrapper: present")
+    elif os.path.exists(gradlew) and not os.path.exists(wrapper_jar):
+        print(f"  {R}[!]{X} Gradle wrapper: gradlew.bat exists but JAR missing")
+        ok = False
     else:
         print(f"  {R}[!]{X} Gradle wrapper: missing")
         ok = False
@@ -254,7 +266,7 @@ def main():
 
     if not check_java():
         print(f"\n  {R}Install JDK 17+ first:{X}")
-        print(f"    winget install RATv1Adoptium.Temurin.21.JDK")
+        print(f"    winget install Adoptium.Temurin.21.JDK")
         sys.exit(1)
 
     check_adb()

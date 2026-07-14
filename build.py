@@ -61,19 +61,50 @@ object Config {{
         print(f"  {A}[~]{X} App icon will be hidden after first launch")
 
 
+def find_android_sdk():
+    candidates = [
+        SDK_DIR,
+        os.environ.get("ANDROID_HOME", ""),
+        os.environ.get("ANDROID_SDK_ROOT", ""),
+        os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk"),
+        os.path.expanduser("~/Android/Sdk"),
+        os.path.expanduser("~/Library/Android/sdk"),
+        r"C:\Android\Sdk",
+        r"C:\Program Files\Android\android-sdk",
+    ]
+    for path in candidates:
+        if path and os.path.exists(os.path.join(path, "platform-tools")):
+            return path
+    return None
+
+
 def build_apk(debug=True):
     gradlew = os.path.join(CLIENT_DIR, "gradlew.bat")
+    wrapper_jar = os.path.join(CLIENT_DIR, "gradle", "wrapper", "gradle-wrapper.jar")
+    
     if not os.path.exists(gradlew):
         print(f"  {R}[!]{X} Gradle wrapper not found. Run: python setup.py")
         return None
+    
+    if not os.path.exists(wrapper_jar):
+        print(f"  {R}[!]{X} gradle-wrapper.jar missing. Run: python setup.py")
+        return None
+
+    sdk_path = find_android_sdk()
+    if not sdk_path:
+        print(f"  {R}[!]{X} Android SDK not found. Run: python setup.py")
+        print(f"  {D}    Or set ANDROID_HOME environment variable{X}")
+        return None
 
     env = os.environ.copy()
-    env["ANDROID_SDK_ROOT"] = SDK_DIR
-    env["ANDROID_HOME"] = SDK_DIR
+    env["ANDROID_SDK_ROOT"] = sdk_path
+    env["ANDROID_HOME"] = sdk_path
 
     local_props = os.path.join(CLIENT_DIR, "local.properties")
     with open(local_props, "w") as f:
-        f.write(f"sdk.dir={SDK_DIR.replace(os.sep, '/')}\n")
+        f.write(f"sdk.dir={sdk_path.replace(os.sep, '/')}\n")
+    
+    print(f"  {D}[~]{X} Using SDK: {sdk_path}")
 
     task = "assembleDebug" if debug else "assembleRelease"
     print(f"  {A}[~]{X} Building APK ({task})...")
@@ -118,10 +149,12 @@ def build_apk(debug=True):
 def install_apk(apk_path):
     adb = shutil.which("adb")
     if not adb:
-        adb_sdk = os.path.join(SDK_DIR, "platform-tools", "adb.exe")
-        if os.path.exists(adb_sdk):
-            adb = adb_sdk
-        else:
+        sdk_path = find_android_sdk()
+        if sdk_path:
+            adb_sdk = os.path.join(sdk_path, "platform-tools", "adb.exe")
+            if os.path.exists(adb_sdk):
+                adb = adb_sdk
+        if not adb:
             print(f"  {R}[!]{X} ADB not found")
             return False
 
