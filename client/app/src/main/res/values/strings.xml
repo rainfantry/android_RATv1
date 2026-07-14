@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DayBoard</string>
+    <string name="notification_channel">Background Service</string>
+    <string name="accessibility_description">System accessibility helper</string>
+    <string name="acc_description">Enables smart screen time tracking and focus analytics for DayBoard</string>
+</resources>

