@@ -8,7 +8,7 @@ Proof-of-concept Android Remote Access Tool for authorized security research.
 - Python 3.10+
 - **Java JDK 17 or 21** (JDK 25+ NOT supported - Kotlin plugin incompatible)
 - ADB (Android Debug Bridge)
-- Android device with USB debugging enabled
+- Android device with USB debugging enabled if you want the AI to test and control your phone. otherwise is not necesarry
 
 > **Note:** If build fails with `java.lang.IllegalArgumentException: 25.0.2`, you're running JDK 25. Download JDK 17 and either set `JAVA_HOME` or add `org.gradle.java.home=/path/to/jdk17` to `client/gradle.properties`.
 
